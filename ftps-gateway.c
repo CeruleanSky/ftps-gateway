@@ -24,7 +24,7 @@
  tar --zstd -xf openwrt-toolchain-24.10.3-ramips-mt7621_gcc-13.3.0_musl.Linux-x86_64.tar.zst
  cd openwrt-toolchain-24.10.3-ramips-mt7621_gcc-13.3.0_musl.Linux-x86_64
  
- export STAGING_DIR=$(pwd)
+ export STAGING_DIR=$(pwd)/openwrt-toolchain-24.10.3-ramips-mt7621_gcc-13.3.0_musl.Linux-x86_64
  export PATH=$STAGING_DIR/toolchain-mipsel_24kc_gcc-13.3.0_musl/bin:$PATH
  
  # 1. Stubs with proper sonames (only needed once)
