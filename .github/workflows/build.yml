@@ -1,0 +1,103 @@
+
+name: Build OpenWrt ftps-gateway
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  TOOLCHAIN_NAME: openwrt-toolchain-24.10.3-ramips-mt7621_gcc-13.3.0_musl.Linux-x86_64
+  TOOLCHAIN_ARCHIVE: openwrt-toolchain-24.10.3-ramips-mt7621_gcc-13.3.0_musl.Linux-x86_64.tar.zst
+  TOOLCHAIN_URL: https://downloads.openwrt.org/releases/24.10.3/targets/ramips/mt7621/openwrt-toolchain-24.10.3-ramips-mt7621_gcc-13.3.0_musl.Linux-x86_64.tar.zst
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # Cache the extracted toolchain, not just the downloaded archive.
+      - name: Cache OpenWrt toolchain
+        id: toolchain-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.TOOLCHAIN_NAME }}
+          key: openwrt-toolchain-${{ runner.os }}-${{ env.TOOLCHAIN_NAME }}
+
+      - name: Install zstd
+        if: steps.toolchain-cache.outputs.cache-hit != 'true'
+        run: sudo apt-get update && sudo apt-get install -y zstd
+
+      - name: Download OpenWrt toolchain
+        if: steps.toolchain-cache.outputs.cache-hit != 'true'
+        run: wget -q "$TOOLCHAIN_URL"
+
+      - name: Extract OpenWrt toolchain
+        if: steps.toolchain-cache.outputs.cache-hit != 'true'
+        run: tar --zstd -xf "$TOOLCHAIN_ARCHIVE"
+
+      - name: Build ftps-gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          export STAGING_DIR="$GITHUB_WORKSPACE/$TOOLCHAIN_NAME"
+          export PATH="$STAGING_DIR/toolchain-mipsel_24kc_gcc-13.3.0_musl/bin:$PATH"
+
+          # Build mbedTLS stub libraries with correct SONAMEs.
+          mipsel-openwrt-linux-musl-gcc \
+            -shared -fPIC \
+            -Wl,-soname,libmbedtls.so.21 \
+            -o stubs/libmbedtls.so \
+            stubs/mbedtls_stubs.c
+
+          mipsel-openwrt-linux-musl-gcc \
+            -shared -fPIC \
+            -Wl,-soname,libmbedx509.so.7 \
+            -o stubs/libmbedx509.so \
+            stubs/mbedtls_stubs.c
+
+          mipsel-openwrt-linux-musl-gcc \
+            -shared -fPIC \
+            -Wl,-soname,libmbedcrypto.so.16 \
+            -o stubs/libmbedcrypto.so \
+            stubs/mbedtls_stubs.c
+
+          # Build ftps-gateway.
+          mipsel-openwrt-linux-musl-gcc \
+            -o ftps-gateway \
+            ftps-gateway.c \
+            -I./mbedtls-3.6.4/include \
+            -Lstubs \
+            -lmbedtls \
+            -lmbedx509 \
+            -lmbedcrypto
+
+          # Verify the output exists.
+          file ftps-gateway
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ftps-gateway-mipsel
+          path: ftps-gateway
+          if-no-files-found: error
+          retention-days: 30
+
+      # Publish a GitHub Release only for version tags.
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ftps-gateway
+          generate_release_notes: true
